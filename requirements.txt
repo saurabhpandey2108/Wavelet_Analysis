@@ -1,0 +1,9 @@
+numpy 
+pandas
+matplotlib
+scipy
+# pywt
+pywavelets
+
+scikit-learn
+opencv-python
