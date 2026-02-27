@@ -1,6 +1,13 @@
 from tensorflow import keras
 from tensorflow.keras import layers
+import tensorflow as tf
 
+def r_squared(y_true, y_pred):
+    """Custom metric for R-squared."""
+    residual = tf.reduce_sum(tf.square(y_true - y_pred))
+    total = tf.reduce_sum(tf.square(y_true - tf.reduce_mean(y_true)))
+    r2 = 1 - residual / (total + tf.keras.backend.epsilon())
+    return r2
 
 def build_cnn_model(image_shape=(224, 224, 2), use_temperature_scalar=False):
     """Build a small CNN that can accept image input and optional scalar temperature input.
@@ -27,5 +34,9 @@ def build_cnn_model(image_shape=(224, 224, 2), use_temperature_scalar=False):
         out = layers.Dense(1, activation='linear', name='soc')(x)
         model = keras.Model(img_input, out)
 
-    model.compile(optimizer='adam', loss='mse')
+    model.compile(
+        optimizer='adam', 
+        loss='mse',
+        metrics=['mae', tf.keras.metrics.RootMeanSquaredError(name='rmse'), r_squared]
+    )
     return model

@@ -3,7 +3,7 @@ import cv2
 from cwt_calc.cwt_utils import compute_cwt
 
 
-def cwt_to_image(signal, fs, img_size=(224, 224), scales=None, wavelet='morl',
+def cwt_to_image(signal, fs, img_size=(224, 224), scales=None,
                  temperature_value=None, temp_range=None):
     """Convert a 1D signal to a normalized scalogram image.
 
@@ -13,7 +13,10 @@ def cwt_to_image(signal, fs, img_size=(224, 224), scales=None, wavelet='morl',
     temp_range: optional (min, max) to normalize temperature; if not provided
     the function uses min=temperature_value-5, max=temperature_value+5 as a safe fallback.
     """
-    coeffs, freqs = compute_cwt(signal, fs, wavelet=wavelet, scales=scales)
+    if scales is None:
+        scales = np.arange(1, 128)
+        
+    coeffs, freqs = compute_cwt(signal, fs, scales)
     scalogram = np.abs(coeffs)
 
     # Normalize to [0,1]
@@ -26,7 +29,7 @@ def cwt_to_image(signal, fs, img_size=(224, 224), scales=None, wavelet='morl',
     img_resized = cv2.resize(img, img_size)
 
     if temperature_value is None:
-        return img_resized
+        return img_resized, freqs
 
     # Normalize temperature_value
     if temp_range is None:
@@ -43,7 +46,7 @@ def cwt_to_image(signal, fs, img_size=(224, 224), scales=None, wavelet='morl',
 
     temp_img = np.full_like(img_resized, fill_value=t_norm, dtype=np.float32)
     combined = np.stack([img_resized, temp_img], axis=-1)
-    return combined
+    return combined, freqs
 
 
 def stack_channels(img_v, img_i, temperature_value=None, temp_range=None):
