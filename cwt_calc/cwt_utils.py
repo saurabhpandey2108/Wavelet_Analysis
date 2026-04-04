@@ -18,22 +18,56 @@ def compute_cwt(signal, fs, scales, w0=6):
     t = np.arange(-n//2, n//2) * dt
 
     cwt_matrix = np.zeros((len(scales), n), dtype=complex)
+    import numpy as np
+
+def morlet_wavelet(t, w0=6):
+    return (np.pi ** -0.25) * np.exp(1j * w0 * t) * np.exp(-t**2 / 2)
+
+def compute_cwt(signal, fs, scales, w0=6):
+    signal = np.asarray(signal)
+    n = len(signal)
+
+    dt = 1.0 / fs
+
+    # symmetric time vector
+    t = (np.arange(n) - n // 2) * dt
+
+    cwt_matrix = np.zeros((len(scales), n), dtype=np.complex64)
+    import numpy as np
+
+def morlet_wavelet(t, w0=6):
+    return (np.pi ** -0.25) * np.exp(1j * w0 * t) * np.exp(-t**2 / 2)
+
+def compute_cwt(signal, fs, scales, w0=6):
+    signal = np.asarray(signal)
+    n = len(signal)
+
+    dt = 1.0 / fs
+
+    # symmetric time vector
+    t = (np.arange(n) - n // 2) * dt
+
+    cwt_matrix = np.zeros((len(scales), n), dtype=np.complex64)
+    
     freqs = np.zeros(len(scales))
 
     for i, scale in enumerate(scales):
-        # Pseudo-frequency for Morlet
-        freqs[i] = w0 / (2 * np.pi * scale)
-        
+
+        # Correct pseudo-frequency
+        freqs[i] = w0 / (2 * np.pi * scale * dt)
+
+        # Scale time axis
         scaled_t = t / scale
-        wavelet = morlet_wavelet(scaled_t, w0)
 
-        # Scale normalization
-        wavelet = wavelet / np.sqrt(scale)
+        # Morlet wavelet with scale normalization
+        wavelet = morlet_wavelet(scaled_t, w0) / np.sqrt(scale)
 
-        # Convolution
-        conv = np.convolve(signal, np.conj(wavelet), mode='same')
-
-        cwt_matrix[i, :] = conv
+        # Convolution with dt factor
+        cwt_matrix[i, :] = np.convolve(
+            signal,
+            np.conj(wavelet[::-1]),
+            mode='same'
+        ) * dt
 
     return cwt_matrix, freqs
 

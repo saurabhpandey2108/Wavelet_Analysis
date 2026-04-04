@@ -17,7 +17,7 @@ def cwt_to_image(signal, fs, img_size=(224, 224), scales=None,
         scales = np.arange(1, 128)
         
     coeffs, freqs = compute_cwt(signal, fs, scales)
-    scalogram = np.abs(coeffs)
+    scalogram = np.log1p(np.abs(coeffs))
 
     # Normalize to [0,1]
     if scalogram.max() - scalogram.min() == 0:
