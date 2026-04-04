@@ -5,3 +5,4 @@ scipy
 tensorflow
 scikit-learn
 opencv-python
+openpyxl
