@@ -119,7 +119,7 @@ def main():
     print("  PHASE 3: CNN MODEL TRAINING")
     print(f"{'='*70}")
     print(f"  Architecture: 3×(Conv2D→BN→ReLU→MaxPool) → Dropout → FC → Regression")
-    print(f"  Optimizer: SGDM (lr=0.01, momentum=0.9)")
+    print(f"  Optimizer: Adam (lr=0.0001, clipnorm=1.0) with He Normal Initialization")
     print(f"  Epochs: {EPOCHS} | Batch size: {BATCH_SIZE}")
     print(f"  Training samples: {len(X_train)} | Validation: 20% of training")
 
