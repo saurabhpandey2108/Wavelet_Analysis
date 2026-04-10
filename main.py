@@ -5,188 +5,28 @@ CWT-CNN Battery SOC Estimation Pipeline
 End-to-end pipeline for estimating the State of Charge (SOC) of Li-ion batteries
 using Continuous Wavelet Transform scalograms and a Convolutional Neural Network.
 
-Dataset: Arbin DST profile at 25°C ambient, starting at 50% SOC
-         (11_05_2015_SP20-2_DST_50SOC.xls)
+Paper methodology:
+  - TRAINING:  DST cycle at 0°C ambient   (02_24_2016_SP20-2_0C_DST_80SOC.xls)
+  - TESTING:   DST, FUDS, US06 at 25°C    (~10,000 combined test samples)
 """
 
 import os
 import numpy as np
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
-from sklearn.model_selection import train_test_split
 
-from data_preprocessing.preprocess import load_signals, estimate_fs, compute_soc, create_windows
-from cwt_image.image_utils import cwt_to_image, stack_channels
-from cwt_calc.cwt_utils import compute_cwt
+# Config and Utilities
+from config.settings import RESULTS_DIR, EPOCHS, BATCH_SIZE, RANDOM_SEED, TRAIN_DATA, TEST_DATA
+from pipeline.data_pipeline import process_dataset
+from cwt_image.image_utils import cwt_to_image
 from cnn_model.model import build_cnn_model
 
-# ──────────────────────────────────────────────────────────────────────────────
-#  Configuration
-# ──────────────────────────────────────────────────────────────────────────────
-
-DATASET_FILE = "11_05_2015_SP20-2_DST_50SOC.xls"
-RESULTS_DIR = "results"
-INITIAL_SOC = 0.5          # Dataset starts at 50% SOC
-CAPACITY_AH = 2.0          # SP20 rated capacity (Ah)
-WINDOW_SIZE = 256           # Samples per window (~256s at ~1 Hz)
-STRIDE = 128                # 50% overlap
-SCALES = np.arange(1, 128)  # CWT scales
-EPOCHS = 30
-BATCH_SIZE = 32
-TEST_SPLIT = 0.2
-RANDOM_SEED = 42
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-#  Visualization Functions
-# ──────────────────────────────────────────────────────────────────────────────
-
-def plot_frequency_scalogram(v_win, fs, freqs, save_path):
-    """2D scalogram plot with pseudo-frequency y-axis."""
-    coeffs, _ = compute_cwt(v_win, fs, SCALES)
-    scalogram = np.abs(coeffs)
-    scalogram = (scalogram - scalogram.min()) / (scalogram.max() - scalogram.min() + 1e-10)
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-    im = ax.imshow(scalogram, aspect="auto", cmap="jet", origin="lower",
-                   extent=[0, len(v_win) / fs, freqs.min(), freqs.max()])
-    fig.colorbar(im, ax=ax, label="Normalized Magnitude")
-    ax.set_xlabel("Time (s)", fontsize=12)
-    ax.set_ylabel("Pseudo-frequency (Hz)", fontsize=12)
-    ax.set_title("CWT Scalogram — Voltage Signal (DST Profile)", fontsize=14)
-    fig.tight_layout()
-    fig.savefig(save_path, dpi=150)
-    plt.close(fig)
-    print(f"  Saved 2D scalogram → {save_path}")
-
-
-def plot_3d_scalogram(v_win, fs, freqs, save_path):
-    """3D surface plot of the CWT scalogram.
-
-    X-axis: Time (s)
-    Y-axis: Pseudo-frequency (Hz)
-    Z-axis: CWT Magnitude (normalized)
-
-    This visualization reveals the time-frequency energy distribution
-    in three dimensions, making peaks and ridges more visible than
-    the standard 2D heatmap.
-    """
-    coeffs, _ = compute_cwt(v_win, fs, SCALES)
-    scalogram = np.abs(coeffs)
-    scalogram = (scalogram - scalogram.min()) / (scalogram.max() - scalogram.min() + 1e-10)
-
-    time_axis = np.linspace(0, len(v_win) / fs, scalogram.shape[1])
-    T, F = np.meshgrid(time_axis, freqs)
-
-    fig = plt.figure(figsize=(14, 8))
-    ax = fig.add_subplot(111, projection='3d')
-
-    surf = ax.plot_surface(T, F, scalogram, cmap='jet', edgecolor='none',
-                           alpha=0.9, rstride=2, cstride=2)
-    fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label="Normalized Magnitude")
-
-    ax.set_xlabel("Time (s)", fontsize=11, labelpad=10)
-    ax.set_ylabel("Pseudo-frequency (Hz)", fontsize=11, labelpad=10)
-    ax.set_zlabel("CWT Magnitude", fontsize=11, labelpad=10)
-    ax.set_title("3D CWT Scalogram — Voltage Signal (DST Profile)", fontsize=14, pad=20)
-    ax.view_init(elev=30, azim=225)
-    fig.tight_layout()
-    fig.savefig(save_path, dpi=150)
-    plt.close(fig)
-    print(f"  Saved 3D scalogram → {save_path}")
-
-
-def plot_soc_profile(soc, time, save_path):
-    """Plot the computed SOC profile over time."""
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(time / 3600, soc, color='#2196F3', linewidth=1.5)
-    ax.set_xlabel("Time (hours)", fontsize=12)
-    ax.set_ylabel("SOC", fontsize=12)
-    ax.set_title("Coulomb Counting SOC Profile — DST at 25°C, Initial SOC = 50%", fontsize=14)
-    ax.set_ylim(-0.05, 1.05)
-    ax.grid(True, alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(save_path, dpi=150)
-    plt.close(fig)
-    print(f"  Saved SOC profile → {save_path}")
-
-
-def plot_voltage_current(voltage, current, time, save_path):
-    """Plot raw voltage and current signals."""
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(14, 7), sharex=True)
-
-    ax1.plot(time / 3600, voltage, color='#FF5722', linewidth=0.8)
-    ax1.set_ylabel("Voltage (V)", fontsize=12)
-    ax1.set_title("DST Profile — Raw Signals (25°C Ambient)", fontsize=14)
-    ax1.grid(True, alpha=0.3)
-
-    ax2.plot(time / 3600, current, color='#4CAF50', linewidth=0.8)
-    ax2.set_xlabel("Time (hours)", fontsize=12)
-    ax2.set_ylabel("Current (A)", fontsize=12)
-    ax2.grid(True, alpha=0.3)
-
-    fig.tight_layout()
-    fig.savefig(save_path, dpi=150)
-    plt.close(fig)
-    print(f"  Saved V/I plot → {save_path}")
-
-
-def plot_training_history(history, save_path):
-    """Plot training and validation loss/metrics curves."""
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
-
-    metrics = [('loss', 'MSE Loss'), ('mae', 'MAE'), ('rmse', 'RMSE'), ('r_squared', 'R²')]
-
-    for ax, (key, label) in zip(axes.flat, metrics):
-        if key in history.history:
-            ax.plot(history.history[key], label=f'Train {label}', linewidth=1.5)
-            val_key = f'val_{key}'
-            if val_key in history.history:
-                ax.plot(history.history[val_key], label=f'Val {label}',
-                        linewidth=1.5, linestyle='--')
-            ax.set_xlabel("Epoch", fontsize=11)
-            ax.set_ylabel(label, fontsize=11)
-            ax.set_title(label, fontsize=13)
-            ax.legend()
-            ax.grid(True, alpha=0.3)
-
-    fig.suptitle("Training History — CWT-CNN SOC Estimation", fontsize=15, y=1.01)
-    fig.tight_layout()
-    fig.savefig(save_path, dpi=150)
-    plt.close(fig)
-    print(f"  Saved training history → {save_path}")
-
-
-def plot_predictions(y_true, y_pred, save_path):
-    """Scatter plot of predicted vs actual SOC + error distribution."""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-
-    # Scatter: Predicted vs Actual
-    ax1.scatter(y_true, y_pred, alpha=0.5, s=20, c='#1976D2', edgecolors='none')
-    ax1.plot([0, 1], [0, 1], 'r--', linewidth=1.5, label='Ideal (y = x)')
-    ax1.set_xlabel("Actual SOC", fontsize=12)
-    ax1.set_ylabel("Predicted SOC", fontsize=12)
-    ax1.set_title("Predicted vs Actual SOC", fontsize=14)
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    ax1.set_xlim(-0.05, 1.05)
-    ax1.set_ylim(-0.05, 1.05)
-    ax1.set_aspect('equal')
-
-    # Error distribution
-    errors = y_pred.flatten() - y_true
-    ax2.hist(errors, bins=30, color='#FF7043', edgecolor='white', alpha=0.85)
-    ax2.axvline(0, color='black', linestyle='--', linewidth=1)
-    ax2.set_xlabel("Prediction Error (Predicted − Actual)", fontsize=12)
-    ax2.set_ylabel("Count", fontsize=12)
-    ax2.set_title(f"Error Distribution (μ={errors.mean():.4f}, σ={errors.std():.4f})", fontsize=14)
-    ax2.grid(True, alpha=0.3)
-
-    fig.tight_layout()
-    fig.savefig(save_path, dpi=150)
-    plt.close(fig)
-    print(f"  Saved predictions plot → {save_path}")
-
+# Visualizations
+from visualization.plot_utils import (
+    plot_frequency_scalogram,
+    plot_3d_scalogram,
+    plot_fig3_signals,
+    plot_fig4_training_history,
+    plot_fig5_soc_comparison
+)
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Main Pipeline
@@ -195,87 +35,95 @@ def plot_predictions(y_true, y_pred, save_path):
 def main():
     print("=" * 70)
     print("  CWT-CNN Battery SOC Estimation Pipeline")
-    print("  Dataset: DST Profile | 25°C | Initial SOC = 50%")
+    print("  Paper: CWT-based CNN Model for EV Battery SOC Estimation")
+    print("  ─────────────────────────────────────────────────────")
+    print("  Training:  DST cycle @ 0°C ambient")
+    print("  Testing:   DST, US06, FUDS @ 25°C ambient")
     print("=" * 70)
     np.random.seed(RANDOM_SEED)
 
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
-    # ── 1. Load Data ─────────────────────────────────────────────────────
-    dataset_path = os.path.join("dataset", DATASET_FILE)
-    print(f"\n[1/7] Loading dataset: {dataset_path}")
-    df, voltage, current, temperature, time = load_signals(dataset_path)
-    print(f"  Loaded {len(voltage)} data points")
-    print(f"  Voltage range: {voltage.min():.3f} V — {voltage.max():.3f} V")
-    print(f"  Current range: {current.min():.3f} A — {current.max():.3f} A")
-    print(f"  Ambient Temperature: {temperature[0]:.1f}°C (fixed)")
+    # ══════════════════════════════════════════════════════════════════════
+    #  PHASE 1: TRAINING DATA PREPARATION (DST @ 0°C)
+    # ══════════════════════════════════════════════════════════════════════
+    print(f"\n{'='*70}")
+    print("  PHASE 1: TRAINING DATA — DST @ 0°C")
+    print(f"{'='*70}")
 
-    fs = estimate_fs(time)
-    print(f"  Sampling Frequency: {fs:.4f} Hz (dt ≈ {1/fs:.2f} s)")
+    X_train, Y_train, fs_train, v_win_train, _, _, _, _ = \
+        process_dataset(TRAIN_DATA, results_dir=RESULTS_DIR)
 
-    # ── 2. Plot Raw Signals ──────────────────────────────────────────────
-    print(f"\n[2/7] Plotting raw signals...")
-    plot_voltage_current(voltage, current, time,
-                         os.path.join(RESULTS_DIR, "raw_signals.png"))
+    print(f"\n  Training dataset shape: X={X_train.shape}, Y={Y_train.shape}")
 
-    # ── 3. Compute SOC via Coulomb Counting ──────────────────────────────
-    print(f"\n[3/7] Computing SOC (initial={INITIAL_SOC}, capacity={CAPACITY_AH} Ah)...")
-    soc = compute_soc(current, time, initial_soc=INITIAL_SOC, capacity_ah=CAPACITY_AH)
-    print(f"  SOC range: {soc.min():.4f} — {soc.max():.4f}")
-    plot_soc_profile(soc, time, os.path.join(RESULTS_DIR, "soc_profile.png"))
+    # Generate scalogram visualizations from training data
+    print(f"\n  Generating scalogram visualizations (training data)...")
+    _, freqs = cwt_to_image(v_win_train[0], fs_train)
+    plot_frequency_scalogram(v_win_train[0], fs_train, freqs,
+                             os.path.join(RESULTS_DIR, "scalogram_2d_train.png"),
+                             title_suffix="(DST @ 0°C)")
+    plot_3d_scalogram(v_win_train[0], fs_train, freqs,
+                      os.path.join(RESULTS_DIR, "scalogram_3d_train.png"),
+                      title_suffix="(DST @ 0°C)")
 
-    # ── 4. Create Sliding Windows ────────────────────────────────────────
-    print(f"\n[4/7] Creating sliding windows (size={WINDOW_SIZE}, stride={STRIDE})...")
-    v_win, y_soc = create_windows(voltage, soc, WINDOW_SIZE, STRIDE)
-    i_win, _ = create_windows(current, soc, WINDOW_SIZE, STRIDE)
-    print(f"  Total windows: {len(v_win)}")
-    print(f"  SOC label range: {y_soc.min():.4f} — {y_soc.max():.4f}")
+    # ══════════════════════════════════════════════════════════════════════
+    #  PHASE 2: TEST DATA PREPARATION (DST, US06, FUDS @ 25°C)
+    # ══════════════════════════════════════════════════════════════════════
+    print(f"\n{'='*70}")
+    print("  PHASE 2: TEST DATA — DST, US06, FUDS @ 25°C")
+    print(f"{'='*70}")
 
-    # ── 5. Generate Scalogram Visualizations ─────────────────────────────
-    print(f"\n[5/7] Generating scalogram visualizations...")
-    _, freqs = cwt_to_image(v_win[0], fs)
+    test_datasets = []
+    # Collect raw data separately for Fig 3
+    us06_raw, fuds_raw = None, None
+    
+    for test_config in TEST_DATA:
+        X_test_i, Y_test_i, fs_test, _, v_raw, i_raw, t_raw, soc_raw = process_dataset(
+            test_config, results_dir=RESULTS_DIR
+        )
+        test_datasets.append({
+            "label": test_config["label"],
+            "X": X_test_i,
+            "Y": Y_test_i,
+            "fs": fs_test
+        })
+        
+        # Save raw data for US06 and FUDS to plot Fig 3
+        if "US06" in test_config["label"]:
+            us06_raw = (t_raw, i_raw, v_raw, soc_raw)
+        elif "FUDS" in test_config["label"]:
+            fuds_raw = (t_raw, i_raw, v_raw, soc_raw)
 
-    # 2D scalogram
-    plot_frequency_scalogram(v_win[0], fs, freqs,
-                             os.path.join(RESULTS_DIR, "scalogram_2d.png"))
+    # ── Recreate Fig 3 (Raw Signals US06 & FUDS) ──
+    if us06_raw and fuds_raw:
+        plot_fig3_signals(
+            us06_raw[0], us06_raw[1], us06_raw[2], us06_raw[3],
+            fuds_raw[0], fuds_raw[1], fuds_raw[2], fuds_raw[3],
+            os.path.join(RESULTS_DIR, "Fig3_RawSignals.png")
+        )
 
-    # 3D scalogram
-    plot_3d_scalogram(v_win[0], fs, freqs,
-                      os.path.join(RESULTS_DIR, "scalogram_3d.png"))
+    # Combine all test data
+    X_test_all = np.concatenate([d["X"] for d in test_datasets], axis=0)
+    Y_test_all = np.concatenate([d["Y"] for d in test_datasets], axis=0)
 
-    # ── 6. Generate CWT Images for All Windows ───────────────────────────
-    print(f"\n[6/7] Generating CWT scalogram images for {len(v_win)} windows...")
-    X_images = []
+    print(f"\n  Combined test dataset: X={X_test_all.shape}, Y={Y_test_all.shape}")
+    print(f"  Per-dataset breakdown:")
+    for d in test_datasets:
+        print(f"    {d['label']}: {len(d['X'])} samples")
+    print(f"  Total test samples: {len(X_test_all)}")
 
-    for idx in range(len(v_win)):
-        img_v, _ = cwt_to_image(v_win[idx], fs)
-        img_i, _ = cwt_to_image(i_win[idx], fs)
-
-        # Stack voltage (Ch1) + current (Ch2) into 2-channel image
-        cwt_combined = stack_channels(img_v, img_i)
-        X_images.append(cwt_combined)
-
-        if (idx + 1) % 10 == 0 or (idx + 1) == len(v_win):
-            print(f"  Processed {idx + 1}/{len(v_win)} windows")
-
-    X = np.array(X_images, dtype=np.float32)
-    Y = np.array(y_soc, dtype=np.float32)
-
-    print(f"  Dataset shapes — X: {X.shape}, Y: {Y.shape}")
-
-    # ── 7. Train/Test Split ──────────────────────────────────────────────
-    X_train, X_test, Y_train, Y_test = train_test_split(
-        X, Y, test_size=TEST_SPLIT, random_state=RANDOM_SEED
-    )
-    print(f"  Train: {len(X_train)} samples | Test: {len(X_test)} samples")
-
-    # ── 8. Build and Train CNN Model ─────────────────────────────────────
-    print(f"\n[7/7] Building and training CNN model...")
-    print(f"  Architecture: 2-channel CWT image → CNN → SOC")
-    print(f"  Temperature branch: DISABLED (fixed 25°C)")
+    # ══════════════════════════════════════════════════════════════════════
+    #  PHASE 3: BUILD AND TRAIN CNN MODEL
+    # ══════════════════════════════════════════════════════════════════════
+    print(f"\n{'='*70}")
+    print("  PHASE 3: CNN MODEL TRAINING")
+    print(f"{'='*70}")
+    print(f"  Architecture: 3×(Conv2D→BN→ReLU→MaxPool) → Dropout → FC → Regression")
+    print(f"  Optimizer: SGDM (lr=0.01, momentum=0.9)")
     print(f"  Epochs: {EPOCHS} | Batch size: {BATCH_SIZE}")
+    print(f"  Training samples: {len(X_train)} | Validation: 20% of training")
 
-    model = build_cnn_model(image_shape=X[0].shape, use_temperature_scalar=False)
+    model = build_cnn_model(image_shape=X_train[0].shape, use_temperature_scalar=False)
     model.summary()
 
     history = model.fit(
@@ -286,24 +134,80 @@ def main():
         verbose=1
     )
 
-    # ── 9. Evaluate Model ────────────────────────────────────────────────
-    print("\n" + "=" * 50)
-    print("  TEST SET EVALUATION")
-    print("=" * 50)
-    eval_results = model.evaluate(X_test, Y_test, verbose=0)
+    # Save training history plot (Fig 4)
+    plot_fig4_training_history(history, os.path.join(RESULTS_DIR, "Fig4_TrainingHistory.png"))
 
-    for name, val in zip(model.metrics_names, eval_results):
-        print(f"  {name.upper():>15s}: {val:.6f}")
+    # ══════════════════════════════════════════════════════════════════════
+    #  PHASE 4: EVALUATION — PER-DATASET AND COMBINED
+    # ══════════════════════════════════════════════════════════════════════
+    print(f"\n{'='*70}")
+    print("  PHASE 4: MODEL EVALUATION")
+    print(f"{'='*70}")
 
-    # ── 10. Generate Result Plots ────────────────────────────────────────
-    print(f"\nGenerating result plots...")
-    plot_training_history(history, os.path.join(RESULTS_DIR, "training_history.png"))
+    # ── 4a. Combined test evaluation ─────────────────────────────────────
+    print("\n  ── Combined Test Set (DST + US06 + FUDS @ 25°C) ──")
+    eval_combined = model.evaluate(X_test_all, Y_test_all, verbose=0)
+    for name, val in zip(model.metrics_names, eval_combined):
+        print(f"    {name.upper():>15s}: {val:.6f}")
 
-    Y_pred = model.predict(X_test, verbose=0)
-    plot_predictions(Y_test, Y_pred, os.path.join(RESULTS_DIR, "predictions.png"))
+    Y_pred_all = model.predict(X_test_all, verbose=0)
 
-    print("\n" + "=" * 70)
-    print("  Pipeline completed. All results saved to:", RESULTS_DIR)
+    # ── 4b. Per-dataset evaluation ───────────────────────────────────────
+    test_results = []
+    for d in test_datasets:
+        label = d["label"]
+        safe_label = label.replace(" ", "_").replace("°", "").replace("@", "at")
+        print(f"\n  ── {label} ──")
+        eval_res = model.evaluate(d["X"], d["Y"], verbose=0)
+        for name, val in zip(model.metrics_names, eval_res):
+            print(f"    {name.upper():>15s}: {val:.6f}")
+
+        Y_pred_i = model.predict(d["X"], verbose=0)
+
+        # Completely bypass Keras dictionary metric parsing bugs (which showed MAE as 0)
+        # and calculate the true MAE and RMSE manually using NumPy:
+        error = Y_pred_i.flatten() - d["Y"]
+        mae_val = float(np.mean(np.abs(error)))
+        rmse_val = float(np.sqrt(np.mean(np.square(error))))
+
+        # Calculate time axis in seconds for Fig 5
+        # Each window is offset by STRIDE samples
+        from config.settings import STRIDE
+        time_s = np.arange(len(Y_pred_i)) * STRIDE / d['fs']
+
+        test_results.append({
+            "label": label,
+            "y_true": d["Y"],
+            "y_pred": Y_pred_i,
+            "rmse": rmse_val,
+            "mae": mae_val,
+            "time_axis": time_s
+        })
+
+    # ── 4c. Combined SOC comparison plot (Fig 5) ─────────────────────────
+    plot_fig5_soc_comparison(
+        test_results,
+        os.path.join(RESULTS_DIR, "Fig5_SOC_Comparisons.png")
+    )
+
+    # ── 4d. Summary table ────────────────────────────────────────────────
+    print(f"\n{'='*70}")
+    print("  FINAL RESULTS SUMMARY")
+    print(f"{'='*70}")
+    print(f"  {'Dataset':<20s} {'RMSE':>10s} {'MAE':>10s}")
+    print(f"  {'─' * 40}")
+    for r in test_results:
+        print(f"  {r['label']:<20s} {r['rmse']:>10.6f} {r['mae']:>10.6f}")
+    print(f"  {'─' * 40}")
+
+    # Calculate combined metrics manually to avoid metric parsing issues
+    combined_error = Y_pred_all.flatten() - Y_test_all
+    combined_mae = float(np.mean(np.abs(combined_error)))
+    combined_rmse = float(np.sqrt(np.mean(np.square(combined_error))))
+            
+    print(f"  {'Combined':<20s} {combined_rmse:>10.6f} {combined_mae:>10.6f}")
+
+    print(f"\n  All results saved to: {os.path.abspath(RESULTS_DIR)}")
     print("=" * 70)
 
 

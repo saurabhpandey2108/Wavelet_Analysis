@@ -1,0 +1,373 @@
+979-8-3503-0473-2/23/$31.00 ©2023 IEEE 
+ 
+Continuous Wavelet Transform based CNN Model 
+for EV Battery State of Charge Estimation 
+Prasanta Kumar Mohanty, Premalata Jena, Narayana Prasad Padhy 
+ Department of Electrical Engineering  
+IIT Roorkee, Roorkee, India  
+pkumarmohanty@ee.iitr.ac.in, premalata.jena@ee.iitr.ac.in, nppadhy@ee.iitr.ac.in 
+ 
+Abstract— The paper introduces a novel approach called 
+Continuous Wavelet Transform -based Convolutional Neural 
+Network ( CWT-CNN) for precisely estimating electric vehicle 
+battery state -of-charge (SOC). SOC holds significant 
+importance in analysing vehicle range and ensuring battery cell 
+balancing. To validate the effectiveness of the proposed model, 
+three real-world datasets are utilised for both the training and 
+testing stages.  Incorporating the Continuous Wavelet 
+Transform (CWT) in the proposed CWT-CNN model plays a 
+vital role. CWT enables extracting essential features from the 
+input data by analysing signals in both time and frequency 
+domains. This process aids in capturing significant patterns and 
+variations that might not be easily discernible through 
+conventional methods.  To evaluate the accuracy of the CWT -
+CNN model's predictions on the test set data, two evaluation 
+metrics, Root Mean Square Error (RMSE), and Mean Absolute 
+Error (MAE), are employed. The reported highest percentage 
+values of RMSE (1.26%) and MAE (0.76%) demonstrate the 
+effectiveness of the proposed CWT -CNN model in accurately 
+estimating the state -of-charge (SOC) of electric vehicle 
+batteries.  
+Keywords—Electric vehicle, Deep learning, State-of-charge, 
+Wavelet transform, Convolutional neural network. 
+I. INTRODUCTION  
+The necessity of electric vehicle integration in the 
+transportation sector arises from its crucial role in mitigating 
+air pollution. The energy storage system employed in these 
+vehicles is pivotal  in determining their cost, performance, 
+size, and safety. In contemporary times, Lithium-ion batteries 
+have gained significant preference in electric vehicles owing 
+to their superior energy efficiency.  The performance of a 
+battery is influenced by a multitude of parameters, including 
+battery cell voltage, current, state of charge (SOC), cell 
+temperature, ambient temperature, and more. These factors, 
+in turn, have a direct impact on various aspects , such as the 
+vehicle's range, the cell balancing process, e nergy 
+consumption, and the overall battery life.  In battery 
+management systems, battery SOC (State of Charge) is a key 
+factor. Since the battery's SOC has a significant impact on 
+both its general performance and efficiency, determining an 
+accurate estimate of the SOC is of the utmost importance. 
+ In addition to conventional model -driven approaches, 
+data-driven AI techniques are a key feature of contemporary 
+literature. These AI -driven techniques are becoming more 
+and more well -liked, and this is largely because of their 
+extraordinary capacity to handle massive amounts of data 
+effectively. These AI-powered, data-driven tools process and 
+analyze massive volumes  of information, producing more 
+precise and insightful outcomes. Due to their success in 
+managing complicated and high-dimensional data, they have 
+consequently become a preferred option for numerous 
+applications extending across various sectors. 
+Furthermore, these methods have proven to be more 
+precise in predicting a wide range of outcomes, thus 
+becoming invaluable in battery SOC estimation. For instance, 
+in [1], the researchers utilized a 1D CNN model for SOC 
+estimation. Additionally, in [2], they employed a deep LSTM 
+model, achieving impressive RMSE and MAE values of 
+0.0239 and 0.0202, respectively. In [3], a Gated Recurrent 
+Neural Network (GRU) model was employed, and the 
+corresponding RMSE values were found to be 2.15, 1.30, and 
+1.34 for 0, 25, and 45 degrees, respectively.  In [4], authors 
+explored multiple Artificial Neural Network models, such as 
+Support Vector Machines, CNN, and Gated Recurrent Neural 
+Networks. They discovered that the CNN model 
+outperformed others, yielding RMSE and MAE values of 
+1.74 (±0.269) and 1.44 (±0.216), respectively.  Furthermore, 
+in [5], a CNN-based model was proposed and optimised using 
+specific parameters for improved performance.  However, a 
+crucial aspect overlooked in the aforementioned literature  is 
+the significance of extracting intricate temporal and 
+frequency characteristics from input data, particularly when 
+dealing with limited datasets. 
+This paper introduces a novel CWT -based CNN model, 
+called CWT-CNN, designed for precise electric vehicle 
+battery state of charge (SOC) prediction. The Continuous 
+Wavelet Transform (CWT) is employed to extract complex 
+temporal and frequency characteristics from the input data , 
+and its resulting output is subsequently fed into a CNN model 
+for the SOC prediction task. The paper highlights three main 
+contributions: 
+1) The utilisation of CWT enhances prediction 
+accuracy, even with limited input data, eliminating 
+the need for complex models in SOC prediction. 
+2023 IEEE 3rd International Conference on Smart Technologies for Power, Energy and Control (STPEC) | 979-8-3503-0473-2/23/$31.00 ©2023 IEEE | DOI: 10.1109/STPEC59253.2023.10430817
+Authorized licensed use limited to: Birla Institute of Technology. Downloaded on February 03,2026 at 11:12:43 UTC from IEEE Xplore.  Restrictions apply. 
+======
+2) The features extracted from CWT serve as input for 
+a CNN -based regression model, enabling precise 
+SOC prediction. 
+3) The overall model is trained and tested on three 
+publicly available datasets: DST, US06, and FUDS, 
+encompassing current and voltage data across three 
+different ambient temperatures (0,  25, and 45 
+degrees). 
+The remainder of the paper is structured as follows. 
+Section II provides a detailed explanation of the proposed 
+technique. It delves into the architecture and functioning of 
+the CWT -CNN model, highlighting how it captures 
+important features for SOC predict ion. In Section III, the 
+simulation results are presented, showcasing the model's 
+performance on various datasets and scenarios. Finally, 
+Section IV concludes the paper, summarizing the key 
+findings and contributions. It also discusses potential areas 
+for future research and development in the field of battery 
+SOC prediction using advanced data-driven techniques. 
+II. PROPOSED METHODOLOGY 
+In this section, three subsections are included, namely the 
+"Proposed CWT-CNN Model," "Input Data," and 
+"Evaluation Metrics." This section provides a comprehensive 
+understanding of the proposed methodology for precise 
+battery SOC prediction, utilizing input parameters such as 
+measured voltage, measured current, and the ambient 
+temperature under which the experiments were conducted. 
+A. CWT-CNN Model 
+Fig. 1 illustrates the complete architecture of the proposed 
+CWT-based CWT-CNN model. Section II (B) provides 
+details about the input dataset. The raw dataset is input into 
+the continuous wavelet transform (CWT) block, which 
+generates a scalogram map representing time -frequency 
+representation images. These images are capable of capturing 
+low frequencies with improved frequency resolution and high 
+frequencies with enhanced time resolution, owing to the 
+variable scale wavelets used  [6]. Moreover, the scalogram 
+wavelet transform demonstrates superior analytical 
+capabilities when dealing with signals exhibiting highly 
+distorted shapes.  Fig. 2  displays four randomly selected 
+scalogram images from the comprehensive input training 
+dataset. These images are generated using the CWT block 
+applied to the dynamic test profile data referred to as DST.  
+These are 2D images having both spital and temporal 
+information of the input time series 1D datasets. 
+After generating the scalogram images, they are 
+subsequently fed into the CNN regression model for battery 
+SOC prediction [7]. The CNN model proposed in this study 
+consists of three sets of consecutive four-layer pairs. Each of 
+these pairs comprises the following layers: a convolution 
+layer, a batch normalization layer, a Rectified Linear Unit 
+(ReLU) layer, and a Max pooling layer . This architecture is 
+designed to effectively extract and learn important features 
+from the input data, contributing to accurate predictions in the 
+task of estimating the state -of-charge (SOC) of electric 
+vehicle batteries.  These layer combinations are designed to 
+extract and learn more intricate features present in the 
+scalogram images, enhancing the model's ability to make 
+accurate SOC predictions.  Following the extraction of 
+features from the previous layers, a dropout layer is 
+incorporated, which helps in regularizing the model and 
+Fig.  1.  Architecture of the proposed CWT-CNN model 
+Fig.  2.  Four random scalogram images generated from the DST 
+dataset. 
+Authorized licensed use limited to: Birla Institute of Technology. Downloaded on February 03,2026 at 11:12:43 UTC from IEEE Xplore.  Restrictions apply. 
+======
+preventing overfitting. After the dropout layer, a fully 
+connected layer is employed to combine the learned features. 
+Finally, a regression layer serves as the output layer to 
+produce the predicted battery SOC values. 
+The optimization task in the proposed model utilizes the 
+SGDM (Stochastic Gradient Descent with Momentum) 
+optimizer. During training, a minibatch size of 64 is 
+employed, and the training process is limited to a maximum 
+of 30 epochs. The training progress i s monitored and 
+evaluated based on two metrics: the training Root Mean 
+Square Error (RMSE) and the Loss function. 
+B. Input Dataset 
+The input dataset utilized in this paper comprises publicly 
+available datasets provided by the CALCE battery research 
+team [8]. The Li-ion battery model specifications are detailed 
+in Table I. The dynamic test profile data consists of measured 
+voltage and measured current profiles recorded at three 
+distinct temperatures (0, 25, and 45 degrees Celsius). These 
+profiles are obtained using three driving cycles named DST, 
+US06, and FUDS. The actual SOC profiles are generated and 
+recorded using those voltage, current, and ambient 
+temperature profiles. Fig. 3 (a -c) shows the current, voltage, 
+and actual SOC profile for the US06 dataset. Similarly, Fig. 
+3 (d-f) shows the current, voltage, and actual SOC profile for 
+the FUDS dataset. The training data for the model consists of 
+the current and voltage profiles from the DST data at 0 
+degrees Celsius. On the other hand, the parameters from the 
+US06 and FUDS data are used for separate testing of the 
+model. It is also to be noted that the highest value of the 
+battery SOC is set to 80%. 
+C. Evaluation Metrics 
+The performance of the proposed CWT-CNN model is 
+assessed using two evaluation metrics:  RMSE and MAE. 
+Moreover, during the training process, RMSE values and loss 
+functions are computed for each minibatch The training loss 
+function is defined as half of the mean square error between 
+the predicted SOC values (represented by 
+ˆ
+m
+predictedy ) and the 
+true or targeted SOC values (represented by 
+m
+actualy  ) for all 
+responses. The expressions for the above metrics are 
+expressed by: 
+ 
+( )
+2
+1
+1 ˆ 2
+mm
+M
+actual predicted
+m
+Loss Function y y
+=
+=− 
+ (1) 
+( )
+2
+1
+1 ˆ
+mm
+M
+actual predicted
+m
+RMSE y y M =
+=− 
+ (2) 
+1
+1 ˆ
+m
+M
+actual predicted
+m
+m
+MAE y yM =
+=− 
+ (3) 
+TABLE I 
+BATTERY SPECIFICATIONS 
+Parameters Specifications 
+Model INR 18650-20R 
+Capacity 2000 mAh 
+Cell Chemistry LiNiMnCo/Graphite 
+Weight 45g 
+Fig.  3. (a) Measured current profile for US06 profile; (b) measured voltage profile for US06 profile; (c) SOC values for US06 profile; (d) 
+measured current profile for FUDS profile; (e) measured voltage profile for FUDS profile; (f) SOC values for FUDS profile. 
+Authorized licensed use limited to: Birla Institute of Technology. Downloaded on February 03,2026 at 11:12:43 UTC from IEEE Xplore.  Restrictions apply. 
+======
+III. SIMULATION RESULTS 
+This section presents the validation of the proposed CWT-
+CNN model through simulation results. The validation 
+process begins by examining the training outcomes, followed 
+by the analysis of the final SOC comparison graphs. This 
+comprehensive evaluation ensures the model's effectiveness 
+and accuracy in predicting battery SOC.  The training data 
+used in this study consists of the measured current and 
+measured voltages recorded at an ambient temperature of 0 
+degrees Celsius, employing the DST driving cycles. On the 
+other hand, the testing dataset comprises SOC values from 
+approximately 10,000 samples taken from three dataset s: 
+DST, US06, and FUDS, all obtained  at an ambient  
+temperature of 25 degrees Celsius. This division enables the 
+model to learn from the training data and subsequently  
+evaluate its performance on unseen data from different  
+driving cycles and temperature conditions.  In Fi g. 4, the 
+training Root Mean Square Error (RMSE) and loss function 
+values for the DST dataset are depicted. It is evident that both 
+values consistently decrease and reach levels well below 0.1 
+after the 100th iteration. This significant reduction in RMSE 
+and loss function values demonstrates the effectiveness of the 
+proposed model in accurately predicting the battery SOC for 
+the DST dataset. 
+After completing the training process, the model is 
+subjected to testing using three previously unseen datasets to 
+predict the battery SOC values. The SOC comparison results 
+are displayed in Fi g. 5. It is evident from Fig. 5 that the 
+predicted SOC values closely replicate the actual values for 
+all three different datasets. This indicates the robustness and 
+accuracy of the proposed model in generalizing to new data 
+and making reliable predictions a cross different driving 
+cycles and ambient temperatures.  Additionally, to assess the 
+model's performance, evaluation metrics such as RMSE and 
+MAE percentages are computed and presented in Table II. 
+Remarkably, the highest values of RMSE and MAE  
+percentages are determined to be 1.26% and 0.76%, 
+respectively. These values are considerably lower when 
+compared to existing techniques, indicating the superior 
+TABLE II 
+TEST SET EVALUTION METRICS VALUES 
+Dataset RMSE (%) MAE (%) 
+DST 1.10 0.60 
+US06 1.05 0.52 
+FUDS 1.26 0.76 
+Fig.  4.  Training RMSE values and loss function variation over 30 epochs  
+Fig.  5. Percentage values of the battery SOC comparisons for the DST, 
+US06, and FUDS datasets at 25 degrees Celsius.   
+Authorized licensed use limited to: Birla Institute of Technology. Downloaded on February 03,2026 at 11:12:43 UTC from IEEE Xplore.  Restrictions apply. 
+======
+predictive capabilities of the proposed CWT -CNN model . 
+The model's ability to achieve such low percentage values 
+demonstrates its effectiveness in accurately estimating 
+battery SOC. 
+IV. CONCLUSION AND FUTURE SCOPE 
+This paper introduces a novel and advanced deep learning 
+technique called the CWT -CNN model. Unlike traditional 
+CNN models, the CWT-CNN model incorporates a dedicated 
+Continuous Wavelet Transform (CWT) -based feature 
+extraction block before the CNN network.  This unique 
+addition enables the model to effectively capture essential 
+spatial and temporal features from the complex input data, 
+enhancing its accuracy and efficiency in predicting the state 
+of charge (SOC) of electric vehicle batteries.  Indeed, the 
+maximum percentage values of RMSE (1.26%) and MAE 
+(0.76%) achieved in the evaluation of the proposed model 
+provide strong evidence of its effectiveness. These low 
+percentage values indicate that the model's predictions are 
+highly accurate and closely aligned with the actual values of 
+the battery's state of charge (SOC).  The future prospects of 
+this paper encompass two main dimensions. Firstly, there is 
+potential for investigating the influence of battery aging, 
+degradation, and external factors (such as weather conditions 
+and driving behavior) on battery SOC. Integrating these 
+factors into the prediction models would enhance the model's 
+practicality and accuracy. Secondly, employing transfer 
+learning to reduce computational time during long-term SOC 
+prediction scenarios could significantly optimize battery 
+usage and management. By adopting transfer learning 
+techniques, the model can efficiently adapt and improve its 
+performance for long-term forecasting tasks, making it more 
+practical and applicable in real-world applications. 
+REFERENCES 
+[1] A. Bhattacharjee, A. Verma, S. Mishra, and T. K. Saha, 
+“Estimating State of Charge for xEV Batteries Using 1D 
+Convolutional Neural Networks and Transfer Learning,” IEEE 
+Trans. Veh. Technol. , vol. 70, no. 4, pp. 3123 –3135, 2021, doi: 
+10.1109/TVT.2021.3064287. 
+[2] P. K. Mohanty, P. Jena, and N. P. Padhy, “Electric Vehicle State-
+of-charge Prediction using Deep LSTM Network Model,” 10th 
+IEEE Int. Conf. Power Electron. Drives Energy Syst. PEDES 
+2022, pp. 1–6, 2022, doi: 10.1109/PEDES56012.2022.10080466. 
+[3] Z. Zhang et al., “An Improved Bidirectional Gated Recurrent Unit 
+Method for Accurate State -of-Charge Estimation,” IEEE Access, 
+vol. 9, pp. 11252 –11263, 2021, doi: 
+10.1109/ACCESS.2021.3049944. 
+[4] S. Pohlmann, D. Karnehm, A. Mashayekh, M. Kuder, A. Gieraths, 
+and T. Weyh, “State -of-Charge Estimation of Lithium -Ion 
+Batteries Using Machine Learning Based on Augmented Data,” 
+SEST 2022 - 5th Int. Conf. Smart Energy Syst. Technol. , pp. 1–6, 
+2022, doi: 10.1109/SEST53650.2022.9898474. 
+[5] D. Li and L. Yang, “Remaining useful life prediction of lithium 
+battery using convolutional neural network with optimized 
+parameters,” Proc. - 2020 5th Asia Conf. Power Electr. Eng. 
+ACPEE 2020 , no. 51875339, pp. 840 –844, 2020, doi: 
+10.1109/ACPEE48638.2020.9136289. 
+[6] T. Guo, T. Zhang, E. Lim, M. Lopez -Benitez, F. Ma, and L. Yu, 
+“A Review of Wavelet Analysis and Its Applications: Challenges 
+and Opportunities,” IEEE Access, vol. 10, pp. 58869–58903, 2022, 
+doi: 10.1109/ACCESS.2022.3179517. 
+[7] B. Y. Adhaityar, D. P. Sahara, C. Pratama, A. Wibowo, and L. S. 
+Heliani, “Multi -Target Regression Using Convolutional Neural 
+Network-Random Forests (CNN -RF) for Early Earthquake 
+Warning System,” 2021 9th Int. Conf. Inf. Commun. Technol. 
+ICoICT 2021 , pp. 31 –36, 2021, doi: 
+10.1109/ICoICT52021.2021.9527461. 
+[8] University of Maryland, “Center for Advanced Life Cycle 
+Engineering,” Sch. Eng., no. 301, pp. 1 –20, 2019, Accessed: Jul. 
+28, 2023. [Online]. Available: https://calce.umd.edu/ 
+ 
+Authorized licensed use limited to: Birla Institute of Technology. Downloaded on February 03,2026 at 11:12:43 UTC from IEEE Xplore.  Restrictions apply. 

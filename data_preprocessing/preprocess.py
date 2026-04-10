@@ -47,15 +47,12 @@ def load_signals_csv(csv_path, cols=None):
     return df, voltage, current, temperature, time
 
 
-def load_signals_xls(xls_path, sheet_name='Channel_1-008'):
+def load_signals_xls(xls_path, sheet_name='Channel_1-008', ambient_temp=25.0):
     """Load signals from an Arbin battery cycler XLS file.
 
     The Arbin format stores data in a sheet named 'Channel_1-XXX' with columns:
     - Test_Time(s), Current(A), Voltage(V), Charge_Capacity(Ah),
       Discharge_Capacity(Ah), etc.
-
-    Since the DST dataset is run at a fixed ambient temperature (25°C),
-    the temperature array is filled with a constant 25.0.
 
     Parameters
     ----------
@@ -63,6 +60,8 @@ def load_signals_xls(xls_path, sheet_name='Channel_1-008'):
         Path to the .xls file.
     sheet_name : str
         Name of the data sheet. Default 'Channel_1-008'.
+    ambient_temp : float
+        Ambient temperature in °C. Default 25.0.
 
     Returns
     -------
@@ -76,13 +75,13 @@ def load_signals_xls(xls_path, sheet_name='Channel_1-008'):
     current = df['Current(A)'].values.astype(np.float64)
     time = df['Test_Time(s)'].values.astype(np.float64)
 
-    # Fixed ambient temperature — no temperature sensor column in Arbin DST data
-    temperature = np.full(len(voltage), 25.0, dtype=np.float64)
+    # Fixed ambient temperature — no temperature sensor column in Arbin data
+    temperature = np.full(len(voltage), ambient_temp, dtype=np.float64)
 
     return df, voltage, current, temperature, time
 
 
-def load_signals(path, cols=None, sheet_name='Channel_1-008'):
+def load_signals(path, cols=None, sheet_name='Channel_1-008', ambient_temp=25.0):
     """Auto-detect file format and load signals.
 
     Supports:
@@ -97,6 +96,8 @@ def load_signals(path, cols=None, sheet_name='Channel_1-008'):
         Column mapping for CSV files.
     sheet_name : str
         Sheet name for XLS files.
+    ambient_temp : float
+        Ambient temperature in °C for XLS files. Default 25.0.
 
     Returns
     -------
@@ -105,7 +106,7 @@ def load_signals(path, cols=None, sheet_name='Channel_1-008'):
     ext = os.path.splitext(path)[1].lower()
     if ext in ('.xls', '.xlsx'):
         print(f"  Detected Arbin XLS format: {os.path.basename(path)}")
-        return load_signals_xls(path, sheet_name=sheet_name)
+        return load_signals_xls(path, sheet_name=sheet_name, ambient_temp=ambient_temp)
     else:
         print(f"  Detected CSV format: {os.path.basename(path)}")
         return load_signals_csv(path, cols=cols)
