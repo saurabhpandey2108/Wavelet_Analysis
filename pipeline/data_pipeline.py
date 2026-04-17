@@ -28,7 +28,7 @@ def process_dataset(config, results_dir=None):
     print(f"    Sampling freq: {fs:.4f} Hz")
 
     # Compute SOC via Coulomb Counting
-    soc = compute_soc(current, time, initial_soc=INITIAL_SOC, capacity_ah=CAPACITY_AH)
+    soc = compute_soc(df, initial_soc=0.8)
     print(f"    SOC range: {soc.min():.4f} — {soc.max():.4f}")
 
     # Optional: save signal plots

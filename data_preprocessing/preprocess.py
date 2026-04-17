@@ -75,6 +75,7 @@ def load_signals_xls(xls_path, sheet_name='Channel_1-008', ambient_temp=25.0):
     current = df['Current(A)'].values.astype(np.float64)
     time = df['Test_Time(s)'].values.astype(np.float64)
 
+
     # Fixed ambient temperature — no temperature sensor column in Arbin data
     temperature = np.full(len(voltage), ambient_temp, dtype=np.float64)
 
@@ -125,46 +126,79 @@ def estimate_fs(time_array):
 #  SOC Computation
 # ──────────────────────────────────────────────────────────────────────────────
 
-def compute_soc(current, time, initial_soc=1.0, capacity_ah=None):
-    """Calculate State of Charge (SOC) using Coulomb Counting.
+# def compute_soc(current, time, initial_soc=1.0, capacity_ah=None):
+#     """Calculate State of Charge (SOC) using Coulomb Counting.
 
-    SOC(t) = SOC_0 + ∫ I(t) dt / Q_rated
+#     SOC(t) = SOC_0 + ∫ I(t) dt / Q_rated
 
-    Sign convention (Arbin standard):
-      - Positive current → charging   (SOC increases)
-      - Negative current → discharging (SOC decreases)
+#     Sign convention (Arbin standard):
+#       - Positive current → charging   (SOC increases)
+#       - Negative current → discharging (SOC decreases)
 
-    Parameters
+#     Parameters
+#     ----------
+#     current : ndarray
+#         Current measurements in Amperes.
+#     time : ndarray
+#         Time stamps in seconds.
+#     initial_soc : float
+#         Starting SOC (0.0 to 1.0). Use 0.5 for 50% SOC datasets.
+#     capacity_ah : float or None
+#         Battery rated capacity in Ah. If None, estimated from data.
+
+#     Returns
+#     -------
+#     soc : ndarray
+#         SOC values clipped to [0, 1].
+#     """
+#     dt = np.diff(time, prepend=time[0])
+#     dt[0] = 0.0  # First sample has no preceding interval
+#     dt_hours = dt / 3600.0
+
+#     # Cumulative charge transferred (Ah)
+#     # Positive current = charging = SOC increases
+#     # Negative current = discharging = SOC decreases
+#     cumulative_ah = np.cumsum(current * dt_hours)
+
+#     if capacity_ah is None:
+#         capacity_ah = abs(cumulative_ah[-1])
+#         if capacity_ah == 0:
+#             capacity_ah = 1.0  # Fallback to prevent division by zero
+
+#     soc = initial_soc + (cumulative_ah / capacity_ah)
+#     return np.clip(soc, 0.0, 1.0)
+import numpy as np
+
+def compute_soc(df, initial_soc=0.8):
+    """
+    Compute SOC using charge and discharge capacity columns.
+
+    Parameters:
     ----------
-    current : ndarray
-        Current measurements in Amperes.
-    time : ndarray
-        Time stamps in seconds.
+    df : pandas DataFrame
+        Must contain:
+        - 'Charge_Capacity(Ah)'
+        - 'Discharge_Capacity(Ah)'
     initial_soc : float
-        Starting SOC (0.0 to 1.0). Use 0.5 for 50% SOC datasets.
-    capacity_ah : float or None
-        Battery rated capacity in Ah. If None, estimated from data.
+        Initial SOC (e.g., 0.8 for 80%)
 
-    Returns
+    Returns:
     -------
     soc : ndarray
-        SOC values clipped to [0, 1].
     """
-    dt = np.diff(time, prepend=time[0])
-    dt[0] = 0.0  # First sample has no preceding interval
-    dt_hours = dt / 3600.0
 
-    # Cumulative charge transferred (Ah)
-    # Positive current = charging = SOC increases
-    # Negative current = discharging = SOC decreases
-    cumulative_ah = np.cumsum(current * dt_hours)
+    charge = df["Charge_Capacity(Ah)"].values.astype(float)
+    discharge = df["Discharge_Capacity(Ah)"].values.astype(float)
 
-    if capacity_ah is None:
-        capacity_ah = abs(cumulative_ah[-1])
-        if capacity_ah == 0:
-            capacity_ah = 1.0  # Fallback to prevent division by zero
+    # Rated capacity (maximum observed discharge)
+    capacity_ah = np.max(discharge)
 
-    soc = initial_soc + (cumulative_ah / capacity_ah)
+    # Net charge (handles positive + negative current automatically)
+    net_ah = charge - discharge
+
+    # SOC calculation
+    soc = initial_soc + (net_ah / capacity_ah)
+
     return np.clip(soc, 0.0, 1.0)
 
 

@@ -10,7 +10,7 @@ CAPACITY_AH = 2.0          # SP20 rated capacity (Ah)
 WINDOW_SIZE = 256          # Samples per window
 STRIDE = 5                 # Heavy overlap to artificially increase dataset size (~2000 windows)
 SCALES = np.arange(1, 128) # CWT scales
-EPOCHS = 30
+EPOCHS = 60
 BATCH_SIZE = 64            # Paper: minibatch size of 64
 RANDOM_SEED = 42
 
