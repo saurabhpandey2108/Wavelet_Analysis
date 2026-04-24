@@ -1,9 +1,10 @@
 """
 Data Preprocessing for Battery SOC Estimation Pipeline.
 
-Handles loading data from different battery cycler formats (CSV and Arbin XLS),
-computing SOC via Coulomb Counting, and creating sliding windows for the CWT-CNN
-pipeline.
+Handles loading data from Arbin XLS battery-cycler files, isolating the
+dynamic driving profile (Step_Index == 7), computing SOC from the rebased
+cumulative Charge/Discharge capacity columns, and creating sliding windows
+for the CWT-CNN pipeline.
 """
 
 import os
@@ -16,20 +17,7 @@ import pandas as pd
 # ──────────────────────────────────────────────────────────────────────────────
 
 def load_signals_csv(csv_path, cols=None):
-    """Load signals from a CSV file (e.g. NASA Battery Dataset format).
-
-    Parameters
-    ----------
-    csv_path : str
-        Path to the CSV file.
-    cols : dict, optional
-        Mapping of signal names to column names. Defaults to NASA format.
-
-    Returns
-    -------
-    df : DataFrame
-    voltage, current, temperature, time : ndarray
-    """
+    """Load signals from a CSV file (e.g. NASA Battery Dataset format)."""
     df = pd.read_csv(csv_path)
     if cols is None:
         cols = {
@@ -47,67 +35,57 @@ def load_signals_csv(csv_path, cols=None):
     return df, voltage, current, temperature, time
 
 
-def load_signals_xls(xls_path, sheet_name='Channel_1-008', ambient_temp=25.0):
-    """Load signals from an Arbin battery cycler XLS file.
+def load_signals_xls(xls_path, sheet_name='Channel_1-008', ambient_temp=25.0,
+                     step_filter=7):
+    """Load signals from an Arbin XLS file, keeping only the dynamic driving profile.
 
-    The Arbin format stores data in a sheet named 'Channel_1-XXX' with columns:
-    - Test_Time(s), Current(A), Voltage(V), Charge_Capacity(Ah),
-      Discharge_Capacity(Ah), etc.
+    Arbin test schedules typically contain several setup steps (charge to 100%,
+    CV hold, rest, reference discharge) before the actual DST/US06/FUDS profile
+    in Step_Index == 7. Those setup steps pollute Coulomb-counting SOC because
+    the Charge_Capacity/Discharge_Capacity columns accumulate through them.
+
+    By filtering to `step_filter` (default 7) we isolate the dynamic profile
+    and rebase Test_Time to start at 0. compute_soc() then rebases the capacity
+    columns to zero at the first retained row, so SOC(t=0) = initial_soc.
 
     Parameters
     ----------
     xls_path : str
-        Path to the .xls file.
     sheet_name : str
-        Name of the data sheet. Default 'Channel_1-008'.
     ambient_temp : float
-        Ambient temperature in °C. Default 25.0.
-
-    Returns
-    -------
-    df : DataFrame
-    voltage, current, temperature, time : ndarray
-    """
-    df = pd.read_excel(xls_path, sheet_name=sheet_name, header=0,
-                       engine='openpyxl')
-
-    voltage = df['Voltage(V)'].values.astype(np.float64)
-    current = df['Current(A)'].values.astype(np.float64)
-    time = df['Test_Time(s)'].values.astype(np.float64)
-
-
-    # Fixed ambient temperature — no temperature sensor column in Arbin data
-    temperature = np.full(len(voltage), ambient_temp, dtype=np.float64)
-
-    return df, voltage, current, temperature, time
-
-
-def load_signals(path, cols=None, sheet_name='Channel_1-008', ambient_temp=25.0):
-    """Auto-detect file format and load signals.
-
-    Supports:
-      - .csv  → NASA Battery Dataset format
-      - .xls  → Arbin battery cycler format
-
-    Parameters
-    ----------
-    path : str
-        Path to the dataset file.
-    cols : dict, optional
-        Column mapping for CSV files.
-    sheet_name : str
-        Sheet name for XLS files.
-    ambient_temp : float
-        Ambient temperature in °C for XLS files. Default 25.0.
+    step_filter : int or None
+        Step_Index to retain. If None, the whole file is returned (legacy behaviour).
 
     Returns
     -------
     df, voltage, current, temperature, time
     """
+    df = pd.read_excel(xls_path, sheet_name=sheet_name, header=0,
+                       engine='openpyxl')
+
+    if step_filter is not None and 'Step_Index' in df.columns:
+        df = df[df['Step_Index'] == step_filter].reset_index(drop=True)
+
+    voltage = df['Voltage(V)'].values.astype(np.float64)
+    current = df['Current(A)'].values.astype(np.float64)
+    time = df['Test_Time(s)'].values.astype(np.float64)
+    if len(time) > 0:
+        time = time - time[0]  # rebase dynamic-profile time to 0
+
+    temperature = np.full(len(voltage), ambient_temp, dtype=np.float64)
+
+    return df, voltage, current, temperature, time
+
+
+def load_signals(path, cols=None, sheet_name='Channel_1-008', ambient_temp=25.0,
+                 step_filter=7):
+    """Auto-detect file format and load signals. XLS files are filtered to
+    `step_filter` (default Step 7 = dynamic profile). CSV files bypass filtering."""
     ext = os.path.splitext(path)[1].lower()
     if ext in ('.xls', '.xlsx'):
         print(f"  Detected Arbin XLS format: {os.path.basename(path)}")
-        return load_signals_xls(path, sheet_name=sheet_name, ambient_temp=ambient_temp)
+        return load_signals_xls(path, sheet_name=sheet_name,
+                                ambient_temp=ambient_temp, step_filter=step_filter)
     else:
         print(f"  Detected CSV format: {os.path.basename(path)}")
         return load_signals_csv(path, cols=cols)
@@ -126,77 +104,24 @@ def estimate_fs(time_array):
 #  SOC Computation
 # ──────────────────────────────────────────────────────────────────────────────
 
-# def compute_soc(current, time, initial_soc=1.0, capacity_ah=None):
-#     """Calculate State of Charge (SOC) using Coulomb Counting.
+def compute_soc(df, initial_soc=0.8, capacity_ah=2.0):
+    """Compute SOC from Arbin's cumulative Charge/Discharge capacity columns.
 
-#     SOC(t) = SOC_0 + ∫ I(t) dt / Q_rated
+        SOC(t) = SOC_0 + ((Charge(t) - Charge(0)) - (Discharge(t) - Discharge(0))) / Q_rated
 
-#     Sign convention (Arbin standard):
-#       - Positive current → charging   (SOC increases)
-#       - Negative current → discharging (SOC decreases)
-
-#     Parameters
-#     ----------
-#     current : ndarray
-#         Current measurements in Amperes.
-#     time : ndarray
-#         Time stamps in seconds.
-#     initial_soc : float
-#         Starting SOC (0.0 to 1.0). Use 0.5 for 50% SOC datasets.
-#     capacity_ah : float or None
-#         Battery rated capacity in Ah. If None, estimated from data.
-
-#     Returns
-#     -------
-#     soc : ndarray
-#         SOC values clipped to [0, 1].
-#     """
-#     dt = np.diff(time, prepend=time[0])
-#     dt[0] = 0.0  # First sample has no preceding interval
-#     dt_hours = dt / 3600.0
-
-#     # Cumulative charge transferred (Ah)
-#     # Positive current = charging = SOC increases
-#     # Negative current = discharging = SOC decreases
-#     cumulative_ah = np.cumsum(current * dt_hours)
-
-#     if capacity_ah is None:
-#         capacity_ah = abs(cumulative_ah[-1])
-#         if capacity_ah == 0:
-#             capacity_ah = 1.0  # Fallback to prevent division by zero
-
-#     soc = initial_soc + (cumulative_ah / capacity_ah)
-#     return np.clip(soc, 0.0, 1.0)
-import numpy as np
-
-def compute_soc(df, initial_soc=0.8):
+    The capacity columns are rebased to zero at the first row of `df`. When the
+    caller has already sliced to the dynamic profile (Step_Index == 7), this
+    gives SOC(t=0) = initial_soc and lets the coulomb balance track only the
+    Ah flowing during the dynamic profile, not during setup charging.
     """
-    Compute SOC using charge and discharge capacity columns.
-
-    Parameters:
-    ----------
-    df : pandas DataFrame
-        Must contain:
-        - 'Charge_Capacity(Ah)'
-        - 'Discharge_Capacity(Ah)'
-    initial_soc : float
-        Initial SOC (e.g., 0.8 for 80%)
-
-    Returns:
-    -------
-    soc : ndarray
-    """
-
     charge = df["Charge_Capacity(Ah)"].values.astype(float)
     discharge = df["Discharge_Capacity(Ah)"].values.astype(float)
 
-    # Rated capacity (maximum observed discharge)
-    capacity_ah = np.max(discharge)
+    # Rebase to zero at first retained sample
+    charge = charge - charge[0]
+    discharge = discharge - discharge[0]
 
-    # Net charge (handles positive + negative current automatically)
     net_ah = charge - discharge
-
-    # SOC calculation
     soc = initial_soc + (net_ah / capacity_ah)
 
     return np.clip(soc, 0.0, 1.0)
@@ -207,25 +132,7 @@ def compute_soc(df, initial_soc=0.8):
 # ──────────────────────────────────────────────────────────────────────────────
 
 def create_windows(signal, soc_array, window_size, stride):
-    """Create sliding windows over the signal and target SOC.
-
-    Parameters
-    ----------
-    signal : ndarray
-        1-D input signal.
-    soc_array : ndarray
-        SOC values aligned with the signal.
-    window_size : int
-        Number of samples per window.
-    stride : int
-        Step size between consecutive windows.
-
-    Returns
-    -------
-    windows : ndarray, shape (num_windows, window_size)
-    labels : ndarray, shape (num_windows,)
-        SOC label for each window (value at the end of the window).
-    """
+    """Sliding windows with label = SOC at the end of each window."""
     windows = []
     labels = []
     for i in range(0, len(signal) - window_size + 1, stride):
